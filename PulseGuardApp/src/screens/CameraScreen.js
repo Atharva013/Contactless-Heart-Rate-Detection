@@ -19,11 +19,9 @@ export default function CameraScreen({ navigation, route }) {
   const [recording, setRecording] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [seconds, setSeconds] = useState(DURATION);
-  const [faceStatus, setFaceStatus] = useState('searching'); // 'searching' | 'detected' | 'lost'
   const camRef = useRef(null);
   const timerRef = useRef(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const faceAlertShown = useRef(false);
 
   useEffect(() => {
     const pulse = Animated.loop(
@@ -35,17 +33,6 @@ export default function CameraScreen({ navigation, route }) {
     pulse.start();
     return () => { pulse.stop(); clearInterval(timerRef.current); };
   }, []);
-
-  // Haptic feedback on face detection status change
-  useEffect(() => {
-    if (faceStatus === 'detected') {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } else if (faceStatus === 'lost' && recording) {
-      // Much more aggressive haptic and vibration setting
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Vibration.vibrate([0, 400, 200, 400, 200, 400]); // triple heavy buzz
-    }
-  }, [faceStatus, recording]);
 
   if (!permission) return <View style={styles.center} />;
 
@@ -78,8 +65,6 @@ export default function CameraScreen({ navigation, route }) {
     if (!camRef.current) return;
     setRecording(true);
     setSeconds(DURATION);
-    setFaceStatus('searching');
-    faceAlertShown.current = false;
 
     // Haptic on start
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -92,7 +77,7 @@ export default function CameraScreen({ navigation, route }) {
     }, 1000);
 
     try {
-      const video = await camRef.current.recordAsync({ maxDuration: DURATION, quality: '720p' });
+      const video = await camRef.current.recordAsync({ maxDuration: DURATION });
       setRecording(false);
       clearInterval(timerRef.current);
       setAnalyzing(true);
@@ -109,31 +94,12 @@ export default function CameraScreen({ navigation, route }) {
       setAnalyzing(false);
       clearInterval(timerRef.current);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Vibration.vibrate(250);
       Alert.alert('Error', err.message || 'Recording failed. Check backend is running.');
     }
   };
 
   const stop = () => camRef.current?.stopRecording();
-
-  // Handle face detection events from camera
-  const handleFacesDetected = ({ faces }) => {
-    if (!recording) return;
-
-    if (faces && faces.length > 0) {
-      if (faceStatus !== 'detected') {
-        setFaceStatus('detected');
-      }
-      faceAlertShown.current = false;
-    } else {
-      if (faceStatus === 'detected') {
-        setFaceStatus('lost');
-        if (!faceAlertShown.current) {
-          faceAlertShown.current = true;
-          // Don't show blocking alert — just update UI indicator
-        }
-      }
-    }
-  };
 
   // Analyzing screen
   if (analyzing) {
@@ -155,13 +121,6 @@ export default function CameraScreen({ navigation, route }) {
     );
   }
 
-  // Face status indicator color
-  const faceColor = faceStatus === 'detected' ? '#4CAF50'
-    : faceStatus === 'lost' ? '#e53935' : '#FF9800';
-  const faceMsg = faceStatus === 'detected' ? 'Face detected'
-    : faceStatus === 'lost' ? 'Face lost! Stay in frame'
-    : 'Searching for face...';
-
   return (
     <View style={styles.container}>
       {/* Mode pill at top */}
@@ -170,7 +129,15 @@ export default function CameraScreen({ navigation, route }) {
           <Text style={styles.visualBadgeText}>Visual Assessment Mode</Text>
         </View>
       )}
-      <CameraView ref={camRef} style={styles.camera} facing="front" mode="video">
+      <CameraView
+        ref={camRef}
+        style={styles.camera}
+        facing="front"
+        mode="video"
+        mirror
+        mute
+        videoQuality="720p"
+      >
         {!recording && (
           <View style={styles.guideOverlay}>
             <View style={[styles.faceGuide, forceVisual && { borderColor: 'rgba(126,87,194,0.6)' }]} />
@@ -182,10 +149,9 @@ export default function CameraScreen({ navigation, route }) {
         )}
         {recording && (
           <View style={styles.recordOverlay}>
-            {/* Face status indicator */}
-            <View style={[styles.faceStatusBar, { backgroundColor: faceColor + '20', borderColor: faceColor + '40' }]}>
-              <View style={[styles.faceStatusDot, { backgroundColor: faceColor }]} />
-              <Text style={[styles.faceStatusText, { color: faceColor }]}>{faceMsg}</Text>
+            <View style={styles.faceStatusBar}>
+              <View style={styles.faceStatusDot} />
+              <Text style={styles.faceStatusText}>Recording steady scan</Text>
             </View>
 
             <View style={styles.timerBox}>
@@ -198,15 +164,11 @@ export default function CameraScreen({ navigation, route }) {
             <Text style={styles.recHint}>
               {forceVisual ? 'Hold still — capturing face for AI analysis' : 'Hold still — detecting skin color changes'}
             </Text>
-
-            {/* Alert when face lost */}
-            {faceStatus === 'lost' && (
-              <View style={styles.faceAlert}>
-                <Text style={styles.faceAlertText}>
-                  Stay in the scanning area. Remove glasses or obstructions if possible.
-                </Text>
-              </View>
-            )}
+            <View style={styles.faceAlert}>
+              <Text style={styles.faceAlertText}>
+                Keep your face centered, avoid talking, and use steady light.
+              </Text>
+            </View>
           </View>
         )}
       </CameraView>
@@ -269,9 +231,10 @@ const styles = StyleSheet.create({
   // Face status indicator
   faceStatusBar: { position: 'absolute', top: 20, alignSelf: 'center',
     flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 6,
-    borderRadius: 20, borderWidth: 1 },
-  faceStatusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
-  faceStatusText: { fontSize: 12, fontWeight: '600' },
+    borderRadius: 20, borderWidth: 1, backgroundColor: 'rgba(76,175,80,0.16)',
+    borderColor: 'rgba(76,175,80,0.35)' },
+  faceStatusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 8, backgroundColor: '#4CAF50' },
+  faceStatusText: { fontSize: 12, fontWeight: '600', color: '#4CAF50' },
 
   // Face lost alert
   faceAlert: { position: 'absolute', bottom: 20, marginHorizontal: 20,
