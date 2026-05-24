@@ -3,34 +3,22 @@ import {
   ScrollView, View, Text, Dimensions, StyleSheet,
   TouchableOpacity, SafeAreaView, StatusBar, Platform,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LineChart } from 'react-native-chart-kit';
 import { colors } from '../theme/colors';
 import { computeTriage } from '../services/triage';
+import { savePatientRecord } from '../services/patientRecords';
 
 const W = Dimensions.get('window').width;
 
-export default function ResultsScreen({ navigation, route }) {
+export default function ResultsScreen({ navigation, route, user }) {
   const result = route.params?.result;
   const mode = route.params?.mode || 'wellness';
 
   // Save to history
   useEffect(() => {
     if (!result || result.fromHome) return;
-    const save = async () => {
-      try {
-        const raw = await AsyncStorage.getItem('pulseguard_history');
-        const history = raw ? JSON.parse(raw) : [];
-        history.unshift({
-          result,
-          time: new Date().toLocaleString(),
-        });
-        // Keep last 20
-        await AsyncStorage.setItem('pulseguard_history', JSON.stringify(history.slice(0, 20)));
-      } catch {}
-    };
-    save();
-  }, [result]);
+    savePatientRecord({ user, result, mode }).catch(() => {});
+  }, [result, mode, user]);
 
   // Empty state
   if (!result || result.fromHome) {
