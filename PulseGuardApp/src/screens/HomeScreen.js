@@ -8,10 +8,11 @@ import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors } from '../theme/colors';
 import { analyzeVideo } from '../services/api';
+import { loadPatientRecords } from '../services/patientRecords';
 
 const { width } = Dimensions.get('window');
 
-export default function HomeScreen({ navigation }) {
+export default function HomeScreen({ navigation, user, onSignOut }) {
   const [mode, setMode] = useState('wellness');
   const [history, setHistory] = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -32,12 +33,13 @@ export default function HomeScreen({ navigation }) {
     return () => pulse.stop();
   }, []);
 
-  // Load past results on focus
   useFocusEffect(useCallback(() => {
-    AsyncStorage.getItem('pulseguard_history').then(data => {
-      if (data) setHistory(JSON.parse(data));
-    }).catch(() => {});
-  }, []));
+    loadPatientRecords(user).then(setHistory).catch(() => {
+      AsyncStorage.getItem('pulseguard_history').then(data => {
+        if (data) setHistory(JSON.parse(data));
+      }).catch(() => {});
+    });
+  }, [user]));
 
   // TWIST 2: Upload pre-recorded video
   const handleUpload = async () => {
@@ -76,6 +78,12 @@ export default function HomeScreen({ navigation }) {
           </View>
           <Text style={styles.brand}>PulseGuard</Text>
           <Text style={styles.tagline}>Your personal heart health companion</Text>
+          <View style={styles.accountRow}>
+            <Text style={styles.accountText}>{user?.email || 'Local demo user'}</Text>
+            <TouchableOpacity onPress={onSignOut} style={styles.signOutBtn} activeOpacity={0.8}>
+              <Text style={styles.signOutText}>Sign out</Text>
+            </TouchableOpacity>
+          </View>
 
           {/* Mode Toggle */}
           <View style={styles.modeRow}>
@@ -295,6 +303,12 @@ const styles = StyleSheet.create({
   brand: { fontSize: 32, fontWeight: '800', color: colors.textPrimary, textAlign: 'center',
     letterSpacing: -0.5, marginBottom: 4 },
   tagline: { fontSize: 13, color: colors.textSecondary, textAlign: 'center', marginBottom: 24 },
+  accountRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    marginBottom: 18 },
+  accountText: { maxWidth: width * 0.55, fontSize: 11, color: colors.textMuted, marginRight: 8 },
+  signOutBtn: { borderRadius: 10, borderWidth: 1, borderColor: colors.border,
+    paddingHorizontal: 10, paddingVertical: 6, backgroundColor: colors.white },
+  signOutText: { fontSize: 11, color: colors.textSecondary, fontWeight: '700' },
 
   // Mode
   modeRow: { flexDirection: 'row', marginBottom: 20 },
