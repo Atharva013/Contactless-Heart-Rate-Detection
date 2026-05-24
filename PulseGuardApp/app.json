@@ -2,6 +2,7 @@
   "expo": {
     "name": "PulseGuard",
     "slug": "PulseGuardApp",
+    "scheme": "pulseguard",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -21,7 +22,7 @@
         "backgroundColor": "#0a0e1a"
       },
       "edgeToEdgeEnabled": true,
-      "permissions": ["CAMERA", "RECORD_AUDIO"],
+      "permissions": ["CAMERA"],
       "package": "com.pulseguard.app"
     },
     "web": {
@@ -31,7 +32,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "PulseGuard needs camera access to detect your heart rate from facial skin color changes."
+          "cameraPermission": "PulseGuard needs camera access to detect heart rate from facial skin color changes or fingertip light changes."
         }
       ]
     ]
