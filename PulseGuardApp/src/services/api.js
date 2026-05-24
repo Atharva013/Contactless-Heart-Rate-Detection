@@ -1,14 +1,33 @@
 // PulseGuard API client
 // The Python backend must be running: uvicorn src.api.main:app --host 0.0.0.0 --port 8000
 
-const BASE_URL = 'http://10.23.46.166:8000';
+const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://192.168.29.173:8000';
+
+async function requestWithTimeout(url, options = {}, timeoutMs = 45000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error('Request timed out. Check that the PulseGuard backend is reachable from this phone.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 /**
  * Health check — is the backend reachable?
  */
 export async function checkHealth() {
   try {
-    const res = await fetch(`${BASE_URL}/api/health`, { timeout: 5000 });
+    const res = await requestWithTimeout(`${BASE_URL}/api/health`, {}, 5000);
     const data = await res.json();
     return data.status === 'ok';
   } catch {
@@ -34,11 +53,10 @@ export async function analyzeVideo(videoUri, forceVisual = false) {
     ? `${BASE_URL}/api/analyze?force_visual=true`
     : `${BASE_URL}/api/analyze`;
 
-  const res = await fetch(url, {
+  const res = await requestWithTimeout(url, {
     method: 'POST',
     body: form,
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
+  }, forceVisual ? 90000 : 70000);
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -59,11 +77,10 @@ export async function analyzeFingerVideo(videoUri) {
     name: 'finger_capture.mp4',
   });
 
-  const res = await fetch(`${BASE_URL}/api/analyze/finger`, {
+  const res = await requestWithTimeout(`${BASE_URL}/api/analyze/finger`, {
     method: 'POST',
     body: form,
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
+  }, 70000);
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));

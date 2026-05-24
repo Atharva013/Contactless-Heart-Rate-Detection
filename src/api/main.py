@@ -451,24 +451,67 @@ def run_finger_pipeline(video_path: str) -> dict:
 
     # --- Stage 2: Signal processing ---
     try:
-        from scipy.signal import detrend
+        from scipy.signal import detrend, medfilt
 
         from src.signal_processor import bandpass_filter, detect_peaks, extract_bpm
 
-        # Detrend and bandpass filter
-        # Finger PPG has much stronger signal → use tighter band (48-150 BPM)
-        red_detrended = detrend(red, type='linear')
-        red_filtered = bandpass_filter(red_detrended, fps, low=0.8, high=2.5)
+        # Finger PPG is strong, but the video can contain slow exposure drift
+        # and a few saturated frames. Normalize, clip outliers, smooth lightly,
+        # then choose the polarity that gives the most coherent pulse train.
+        red_norm = (red - np.median(red)) / (np.median(red) + 1e-6)
+        lo, hi = np.percentile(red_norm, [1, 99])
+        red_clipped = np.clip(red_norm, lo, hi)
+        kernel = max(3, int(round(fps * 0.15)))
+        if kernel % 2 == 0:
+            kernel += 1
+        red_smoothed = medfilt(red_clipped, kernel_size=kernel)
+        red_detrended = detrend(red_smoothed, type='linear')
 
-        # BPM via FFT
-        bpm = extract_bpm(red_filtered, fps)
+        candidate_signals = [
+            bandpass_filter(red_detrended, fps, low=0.8, high=2.5),
+            -bandpass_filter(red_detrended, fps, low=0.8, high=2.5),
+        ]
 
-        # Peak detection
-        peaks = detect_peaks(red_filtered, fps)
-
-        # SQI estimate: finger PPG is typically high quality
         from src.sqi_engine import compute_sqi
-        sqi_score, sqi_level, _ = compute_sqi(red_filtered, fps)
+
+        selected = None
+        selected_meta = None
+        for candidate in candidate_signals:
+            peaks = detect_peaks(candidate, fps)
+            bpm_fft = extract_bpm(candidate, fps, low_bpm=48, high_bpm=150)
+            bpm_peaks = None
+            regularity = 0.0
+            if len(peaks) >= 4:
+                ibis = np.diff(peaks) / fps
+                bpm_peaks = 60.0 / np.median(ibis)
+                regularity = 1.0 / (1.0 + (np.std(ibis) / (np.mean(ibis) + 1e-8)))
+            sqi_score, sqi_level, _ = compute_sqi(candidate, fps)
+            agreement = 0.0
+            if bpm_fft and bpm_peaks:
+                agreement = max(0.0, 1.0 - abs(bpm_fft - bpm_peaks) / 35.0)
+            score = 0.55 * sqi_score + 0.25 * regularity + 0.20 * agreement
+            if selected is None or score > selected_meta["score"]:
+                selected = candidate
+                selected_meta = {
+                    "score": score,
+                    "peaks": peaks,
+                    "bpm_fft": bpm_fft,
+                    "bpm_peaks": bpm_peaks,
+                    "sqi_score": sqi_score,
+                    "sqi_level": sqi_level,
+                }
+
+        red_filtered = selected
+        peaks = selected_meta["peaks"]
+        bpm_fft = selected_meta["bpm_fft"]
+        bpm_peaks = selected_meta["bpm_peaks"]
+        sqi_score = selected_meta["sqi_score"]
+        sqi_level = selected_meta["sqi_level"]
+
+        if bpm_fft and bpm_peaks and abs(bpm_fft - bpm_peaks) <= 12:
+            bpm = round((0.6 * bpm_peaks) + (0.4 * bpm_fft), 1)
+        else:
+            bpm = bpm_peaks or bpm_fft
 
     except Exception as e:
         logger.error("Finger signal processing failed: %s", e)
@@ -485,6 +528,10 @@ def run_finger_pipeline(video_path: str) -> dict:
 
     if hrv_result is None and not any("HRV" in w for w in warnings):
         warnings.append("Insufficient peaks detected for HRV analysis.")
+    if bpm is None:
+        warnings.append("Could not estimate BPM reliably from the finger signal.")
+    elif bpm < 45 or bpm > 160:
+        warnings.append("BPM is outside the usual resting range; repeat the scan if this is unexpected.")
 
     # --- Stage 4: Stress classification ---
     stress_level = "UNKNOWN"
@@ -806,4 +853,3 @@ def _build_live_roi(green_buffers, rgb_buffers, fps, frame_count):
 _frontend_dir = Path(__file__).resolve().parent.parent.parent / "frontend"
 if _frontend_dir.is_dir():
     app.mount("/", StaticFiles(directory=str(_frontend_dir), html=True), name="frontend")
-

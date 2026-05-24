@@ -55,7 +55,7 @@ export default function FingerScreen({ navigation, route }) {
     }, 1000);
 
     try {
-      const video = await camRef.current.recordAsync({ maxDuration: DURATION, quality: '720p' });
+      const video = await camRef.current.recordAsync({ maxDuration: DURATION });
       setRecording(false);
       clearInterval(timerRef.current);
       setAnalyzing(true);
@@ -146,7 +146,15 @@ export default function FingerScreen({ navigation, route }) {
   // Camera recording screen
   return (
     <View style={styles.container}>
-      <CameraView ref={camRef} style={styles.camera} facing="back" mode="video" enableTorch={recording}>
+      <CameraView
+        ref={camRef}
+        style={styles.camera}
+        facing="back"
+        mode="video"
+        mute
+        videoQuality="720p"
+        enableTorch={recording}
+      >
         {recording ? (
           <View style={styles.recordOverlay}>
             <View style={styles.timerCircle}>
